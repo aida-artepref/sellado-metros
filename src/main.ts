@@ -23,12 +23,7 @@ const appRoot = document.querySelector<HTMLDivElement>("#app");
 if (!appRoot) throw new Error("Missing #app root");
 
 appRoot.innerHTML = `
-  <aside class="sidebar">
-    <header>
-      <h1>IFC Seal Meter</h1>
-      <p>MVP para estimar metros lineales de sellado exterior en paneles IFC.</p>
-    </header>
-
+  <div class="sidebar">
     <section class="panel">
       <h2>Modelo</h2>
       <label class="file-input">
@@ -96,7 +91,7 @@ appRoot.innerHTML = `
       </div>
       <div id="facade-table"></div>
     </section>
-  </aside>
+  </div>
 
   <main class="viewer-shell">
     <div id="viewer"></div>

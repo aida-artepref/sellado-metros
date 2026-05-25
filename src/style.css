@@ -56,24 +56,16 @@ button:disabled {
   border-right: 1px solid #e2e8f0;
 }
 
-.sidebar header h1 {
-  margin: 0 0 8px;
-  font-size: 24px;
-  letter-spacing: -0.04em;
-}
-
-.sidebar header p {
-  margin: 0;
-  color: #637083;
-  line-height: 1.45;
-}
-
 .panel {
   margin-top: 18px;
   padding: 16px;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
   background: #fbfcfd;
+}
+
+.sidebar .panel:first-child {
+  margin-top: 0;
 }
 
 .panel h2 {
