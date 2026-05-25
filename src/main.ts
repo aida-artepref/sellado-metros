@@ -2,7 +2,7 @@ import "./style.css";
 import { DEFAULT_MEASUREMENT_CONFIG, type SealMeasurementConfig, type SealMeasurementReport } from "./domain/model";
 import { WebIfcReader } from "./ifc/webIfcReader";
 import { calculateSealMeasurement } from "./measurement/calculateSealMeasurement";
-import { reportToCsv } from "./measurement/report";
+import { buildMeasurementReport, reportToCsv } from "./measurement/report";
 import { downloadTextFile } from "./utils/download";
 import { SealViewer } from "./viewer/SealViewer";
 import type { Box3Like } from "./domain/vector";
@@ -16,7 +16,9 @@ type AppState = {
   elements: IfcElementGeometry[];
   modelBox?: Box3Like;
   modelId?: number;
+  baseReport?: SealMeasurementReport;
   report?: SealMeasurementReport;
+  excludedJointIds: Set<string>;
 };
 
 const appRoot = document.querySelector<HTMLDivElement>("#app");
@@ -109,7 +111,17 @@ const state: AppState = {
   reader: new WebIfcReader(),
   viewer: new SealViewer(viewerContainer),
   elements: [],
+  excludedJointIds: new Set<string>(),
 };
+
+state.viewer.setJointClickHandler((jointId) => {
+  if (!state.baseReport) return;
+
+  if (state.excludedJointIds.has(jointId)) state.excludedJointIds.delete(jointId);
+  else state.excludedJointIds.add(jointId);
+
+  syncReportWithExcludedJoints();
+});
 
 function el<T extends HTMLElement>(selector: string): T {
   const node = document.querySelector<T>(selector);
@@ -155,7 +167,9 @@ async function loadIfcFromBuffer(buffer: ArrayBuffer, label: string): Promise<vo
   state.elements = result.elements;
   state.modelBox = result.modelBox;
   state.modelId = result.modelId;
+  state.baseReport = undefined;
   state.report = undefined;
+  state.excludedJointIds.clear();
 
   state.viewer.setModel(result.elements, result.modelBox);
   state.viewer.setJoints([]);
@@ -187,14 +201,38 @@ function calculate(): void {
   }
 
   const config = readConfig();
-  const report = calculateSealMeasurement(state.elements, state.modelBox, config);
+  state.baseReport = calculateSealMeasurement(state.elements, state.modelBox, config);
+  state.excludedJointIds.clear();
+  syncReportWithExcludedJoints();
+}
+
+function syncReportWithExcludedJoints(): void {
+  if (!state.baseReport) {
+    state.report = undefined;
+    state.viewer.setJoints([]);
+    renderReport(undefined);
+    return;
+  }
+
+  const activeJoints = state.baseReport.joints.filter((joint) => !state.excludedJointIds.has(joint.id));
+  const report = buildMeasurementReport(activeJoints, state.baseReport.panels);
   state.report = report;
-  state.viewer.setJoints(report.joints);
-  renderReport(report);
+  state.viewer.setJoints(state.baseReport.joints, state.excludedJointIds);
+  renderReport(report, state.baseReport.joints.length - activeJoints.length);
+
+  const excludedCount = state.excludedJointIds.size;
+  if (excludedCount > 0) {
+    setStatus(
+      `Calculo actualizado: ${report.total.toFixed(2)} m en ${report.joints.length} juntas activas. ${excludedCount} juntas excluidas.`,
+      "ok",
+    );
+    return;
+  }
+
   setStatus(`Calculo terminado: ${report.total.toFixed(2)} m en ${report.joints.length} juntas.`, "ok");
 }
 
-function renderReport(report?: SealMeasurementReport): void {
+function renderReport(report?: SealMeasurementReport, excludedCount = 0): void {
   const summary = el<HTMLDivElement>("#summary");
   const table = el<HTMLDivElement>("#facade-table");
   const exportJson = el<HTMLButtonElement>("#export-json");
@@ -217,6 +255,7 @@ function renderReport(report?: SealMeasurementReport): void {
     <small>${report.horizontal.toFixed(2)} m horizontales + ${report.vertical.toFixed(2)} m verticales</small>
     <small>${report.panels.length} paneles clasificados / ${report.joints.length} juntas</small>
     <small>${report.facades.length} fachadas IFC con paneles medidos</small>
+    ${excludedCount > 0 ? `<small>${excludedCount} juntas excluidas manualmente</small>` : ""}
   `;
 
   table.innerHTML = `

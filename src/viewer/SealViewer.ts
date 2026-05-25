@@ -7,6 +7,8 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 
+const INACTIVE_JOINT_COLOR = 0xcbd5e1;
+
 function materialForElement(element: IfcElementGeometry): THREE.Material {
   const base = element.kind === "wall" ? 0xb6c2cf : element.kind === "column" ? 0x8793a0 : 0xd0d4d8;
   return new THREE.MeshLambertMaterial({ color: base, transparent: true, opacity: element.kind === "wall" ? 0.72 : 0.35 });
@@ -23,17 +25,21 @@ export class SealViewer {
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
   private controls: OrbitControls;
+  private raycaster = new THREE.Raycaster();
+  private pointer = new THREE.Vector2();
   private modelGroup = new THREE.Group();
   private jointGroup = new THREE.Group();
   private animationId?: number;
+  private jointClickHandler?: (jointId: string) => void;
+  private pointerDownPosition?: { x: number; y: number };
 
   constructor(private readonly container: HTMLElement) {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0xf6f7f9);
 
-this.camera = new THREE.PerspectiveCamera(50, 1, 0.01, 100000);
-this.camera.up.set(0, 1, 0);
-this.camera.position.set(40, 60, 60);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.01, 100000);
+    this.camera.up.set(0, 1, 0);
+    this.camera.position.set(40, 60, 60);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -41,11 +47,8 @@ this.camera.position.set(40, 60, 60);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
-this.controls.enableDamping = true;
-this.controls.dampingFactor = 0.08;
-this.controls.screenSpacePanning = false;
-
-
+    this.controls.dampingFactor = 0.08;
+    this.controls.screenSpacePanning = false;
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.85);
     const directional = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -57,12 +60,16 @@ this.controls.screenSpacePanning = false;
     this.scene.add(this.modelGroup, this.jointGroup);
 
     window.addEventListener("resize", this.resize);
+    this.renderer.domElement.addEventListener("pointerdown", this.handlePointerDown);
+    this.renderer.domElement.addEventListener("click", this.handleClick);
     this.resize();
     this.animate();
   }
 
   dispose(): void {
     window.removeEventListener("resize", this.resize);
+    this.renderer.domElement.removeEventListener("pointerdown", this.handlePointerDown);
+    this.renderer.domElement.removeEventListener("click", this.handleClick);
     if (this.animationId) cancelAnimationFrame(this.animationId);
     this.clearGroup(this.modelGroup);
     this.clearGroup(this.jointGroup);
@@ -90,58 +97,67 @@ this.controls.screenSpacePanning = false;
     this.fitToBox(modelBox);
   }
 
-setJoints(joints: SealJoint[]): void {
-  this.clearGroup(this.jointGroup);
-
-  const width = Math.max(this.container.clientWidth, 1);
-  const height = Math.max(this.container.clientHeight, 1);
-
-  for (const joint of joints) {
-    const geometry = new LineGeometry();
-
-    geometry.setPositions([
-      joint.start.x,
-      joint.start.y,
-      joint.start.z,
-      joint.end.x,
-      joint.end.y,
-      joint.end.z,
-    ]);
-
-    const material = new LineMaterial({
-      color: colorForJoint(joint.type),
-      linewidth: 6,
-      depthTest: false,
-      depthWrite: false,
-    });
-
-    material.resolution.set(width, height);
-
-    const line = new Line2(geometry, material);
-    line.name = `${joint.type}:${joint.id}`;
-    line.renderOrder = 999;
-    line.computeLineDistances();
-
-    this.jointGroup.add(line);
+  setJointClickHandler(handler?: (jointId: string) => void): void {
+    this.jointClickHandler = handler;
   }
-}
-private resize = (): void => {
-  const width = Math.max(this.container.clientWidth, 1);
-  const height = Math.max(this.container.clientHeight, 1);
 
-  this.camera.aspect = width / height;
-  this.camera.updateProjectionMatrix();
+  setJoints(joints: SealJoint[], inactiveJointIds: ReadonlySet<string> = new Set()): void {
+    this.clearGroup(this.jointGroup);
 
-  this.renderer.setSize(width, height);
+    const width = Math.max(this.container.clientWidth, 1);
+    const height = Math.max(this.container.clientHeight, 1);
 
-  this.jointGroup.traverse((object) => {
-    const material = (object as THREE.Object3D & { material?: THREE.Material }).material;
+    for (const joint of joints) {
+      const geometry = new LineGeometry();
 
-    if (material instanceof LineMaterial) {
+      geometry.setPositions([
+        joint.start.x,
+        joint.start.y,
+        joint.start.z,
+        joint.end.x,
+        joint.end.y,
+        joint.end.z,
+      ]);
+
+      const isInactive = inactiveJointIds.has(joint.id);
+      const material = new LineMaterial({
+        color: isInactive ? INACTIVE_JOINT_COLOR : colorForJoint(joint.type),
+        linewidth: 6,
+        depthTest: false,
+        depthWrite: false,
+        transparent: isInactive,
+        opacity: isInactive ? 0.35 : 1,
+      });
+
       material.resolution.set(width, height);
+
+      const line = new Line2(geometry, material);
+      line.name = `${joint.type}:${joint.id}`;
+      line.renderOrder = 999;
+      line.userData = { jointId: joint.id };
+      line.computeLineDistances();
+
+      this.jointGroup.add(line);
     }
-  });
-};
+  }
+
+  private resize = (): void => {
+    const width = Math.max(this.container.clientWidth, 1);
+    const height = Math.max(this.container.clientHeight, 1);
+
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+
+    this.renderer.setSize(width, height);
+
+    this.jointGroup.traverse((object) => {
+      const material = (object as THREE.Object3D & { material?: THREE.Material }).material;
+
+      if (material instanceof LineMaterial) {
+        material.resolution.set(width, height);
+      }
+    });
+  };
 
   private animate = (): void => {
     this.animationId = requestAnimationFrame(this.animate);
@@ -161,41 +177,63 @@ private resize = (): void => {
     }
   }
 
-private fitToBox(box: Box3Like): void {
-  const center = boxCenter(box);
-  const size = boxSize(box);
+  private handlePointerDown = (event: PointerEvent): void => {
+    this.pointerDownPosition = { x: event.clientX, y: event.clientY };
+  };
 
-  const maxDim = Math.max(size.x, size.y, size.z, 10);
+  private handleClick = (event: MouseEvent): void => {
+    if (!this.jointClickHandler || !this.pointerDownPosition) return;
 
-  const fov = THREE.MathUtils.degToRad(this.camera.fov);
-  const cameraDistance = (maxDim / 2) / Math.tan(fov / 2);
+    const deltaX = event.clientX - this.pointerDownPosition.x;
+    const deltaY = event.clientY - this.pointerDownPosition.y;
+    if (Math.hypot(deltaX, deltaY) > 4) return;
 
-  const fitOffset = 1.45;
+    const bounds = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
+    this.pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
 
-  /**
-   * Modelo Y-up:
-   * X/Z = planta
-   * Y   = altura
-   *
-   * Por eso la componente Y debe ser positiva.
-   */
-  const direction = new THREE.Vector3(0.85, 0.65, 0.85).normalize();
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const intersections = this.raycaster.intersectObjects(this.jointGroup.children, false);
+    const hit = intersections.find((entry) => typeof entry.object.userData?.jointId === "string");
+    if (!hit) return;
 
-  this.controls.target.set(center.x, center.y, center.z);
+    this.jointClickHandler(hit.object.userData.jointId);
+    this.pointerDownPosition = undefined;
+  };
 
-  this.camera.position.copy(
-    new THREE.Vector3(center.x, center.y, center.z).add(
-      direction.multiplyScalar(cameraDistance * fitOffset)
-    )
-  );
+  private fitToBox(box: Box3Like): void {
+    const center = boxCenter(box);
+    const size = boxSize(box);
 
-  this.camera.near = Math.max(cameraDistance / 1000, 0.01);
-  this.camera.far = cameraDistance * 20 + maxDim * 10;
-  this.camera.updateProjectionMatrix();
+    const maxDim = Math.max(size.x, size.y, size.z, 10);
 
-  this.controls.minDistance = maxDim * 0.05;
-  this.controls.maxDistance = maxDim * 10;
+    const fov = THREE.MathUtils.degToRad(this.camera.fov);
+    const cameraDistance = (maxDim / 2) / Math.tan(fov / 2);
 
-  this.controls.update();
-}
+    const fitOffset = 1.45;
+
+    /**
+     * Modelo Y-up:
+     * X/Z = planta
+     * Y   = altura
+     *
+     * Por eso la componente Y debe ser positiva.
+     */
+    const direction = new THREE.Vector3(0.85, 0.65, 0.85).normalize();
+
+    this.controls.target.set(center.x, center.y, center.z);
+
+    this.camera.position.copy(
+      new THREE.Vector3(center.x, center.y, center.z).add(direction.multiplyScalar(cameraDistance * fitOffset)),
+    );
+
+    this.camera.near = Math.max(cameraDistance / 1000, 0.01);
+    this.camera.far = cameraDistance * 20 + maxDim * 10;
+    this.camera.updateProjectionMatrix();
+
+    this.controls.minDistance = maxDim * 0.05;
+    this.controls.maxDistance = maxDim * 10;
+
+    this.controls.update();
+  }
 }

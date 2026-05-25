@@ -58,7 +58,7 @@ export interface FacadePanel2D {
   bbox: Box3Like;
 }
 
-export type SealJointType = "vertical" | "horizontal" | "corner" | "perimeter";
+export type SealJointType = "vertical" | "horizontal" | "perimeter";
 
 export interface SealJoint {
   id: string;
