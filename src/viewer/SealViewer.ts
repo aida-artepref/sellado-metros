@@ -8,10 +8,63 @@ import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 
 const INACTIVE_JOINT_COLOR = 0xcbd5e1;
+const CORNER_JOINT_COLOR = 0xf59e0b;
+
+function makePanelTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 96;
+  canvas.height = 96;
+
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Missing 2D canvas context");
+
+  context.fillStyle = "#d8e1e9";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  context.strokeStyle = "rgba(92, 109, 126, 0.22)";
+  context.lineWidth = 4;
+  context.beginPath();
+  context.moveTo(-12, 96);
+  context.lineTo(96, -12);
+  context.moveTo(20, 108);
+  context.lineTo(108, 20);
+  context.stroke();
+
+  context.strokeStyle = "rgba(255, 255, 255, 0.26)";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(0, 26);
+  context.lineTo(96, 26);
+  context.moveTo(0, 70);
+  context.lineTo(96, 70);
+  context.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(0.18, 0.18);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+const PANEL_TEXTURE = makePanelTexture();
 
 function materialForElement(element: IfcElementGeometry): THREE.Material {
-  const base = element.kind === "wall" ? 0xb6c2cf : element.kind === "column" ? 0x8793a0 : 0xd0d4d8;
-  return new THREE.MeshLambertMaterial({ color: base, transparent: true, opacity: element.kind === "wall" ? 0.72 : 0.35 });
+  if (element.kind === "wall") {
+    return new THREE.MeshStandardMaterial({
+      color: 0xcad5df,
+      roughness: 0.88,
+      metalness: 0.02,
+      map: PANEL_TEXTURE,
+    });
+  }
+
+  const base = element.kind === "column" ? 0x94a3b8 : 0xd8dee6;
+  return new THREE.MeshStandardMaterial({
+    color: base,
+    roughness: 0.82,
+    metalness: 0.04,
+  });
 }
 
 function hashText(value: string): number {
@@ -31,6 +84,7 @@ export function facadeColorHex(facadeKey: string): string {
 }
 
 function colorForJoint(joint: SealJoint): number {
+  if (joint.type === "corner") return CORNER_JOINT_COLOR;
   return Number.parseInt(facadeColorHex(joint.facadeKey), 16);
 }
 
@@ -57,6 +111,9 @@ export class SealViewer {
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     this.container.appendChild(this.renderer.domElement);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -64,12 +121,16 @@ export class SealViewer {
     this.controls.dampingFactor = 0.08;
     this.controls.screenSpacePanning = false;
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.85);
-    const directional = new THREE.DirectionalLight(0xffffff, 1.2);
-    directional.position.set(30, 40, 60);
-    this.scene.add(ambient, directional);
+    const hemisphere = new THREE.HemisphereLight(0xf8fbff, 0xd6dde7, 1.45);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.55);
+    keyLight.position.set(48, 64, 38);
+    const fillLight = new THREE.DirectionalLight(0xdbeafe, 0.55);
+    fillLight.position.set(-36, 28, -24);
+    this.scene.add(hemisphere, keyLight, fillLight);
 
-    const grid = new THREE.GridHelper(120, 60, 0xb0b0b0, 0xd6d6d6);
+    const grid = new THREE.GridHelper(120, 60, 0xcbd5e1, 0xe5e7eb);
+    grid.material.transparent = true;
+    grid.material.opacity = 0.42;
     this.scene.add(grid);
     this.scene.add(this.modelGroup, this.jointGroup);
 
@@ -106,6 +167,19 @@ export class SealViewer {
         mesh.name = `${element.kind}:${element.expressId}:${element.name}`;
         mesh.userData = { expressId: element.expressId };
         this.modelGroup.add(mesh);
+
+        const edges = new THREE.EdgesGeometry(geometry, 35);
+        const edgeLines = new THREE.LineSegments(
+          edges,
+          new THREE.LineBasicMaterial({
+            color: 0x6b7280,
+            transparent: true,
+            opacity: 0.32,
+          }),
+        );
+        edgeLines.renderOrder = 1;
+        edgeLines.userData = { expressId: element.expressId };
+        this.modelGroup.add(edgeLines);
       }
     }
 
@@ -149,7 +223,7 @@ export class SealViewer {
       const line = new Line2(geometry, material);
       line.name = `${joint.type}:${joint.id}`;
       line.renderOrder = 999;
-      line.userData = { jointId: joint.id, facadeKey: joint.facadeKey };
+      line.userData = { jointId: joint.id, facadeKey: joint.facadeKey, relatedFacadeKeys: joint.relatedFacadeKeys };
       line.computeLineDistances();
 
       this.jointGroup.add(line);
@@ -158,7 +232,7 @@ export class SealViewer {
 
   setIsolation(visibleElementIds?: ReadonlySet<number>, visibleFacadeKeys?: ReadonlySet<string>): void {
     this.modelGroup.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) return;
+      if (!(object instanceof THREE.Mesh || object instanceof THREE.LineSegments)) return;
       if (visibleElementIds === undefined) {
         object.visible = true;
         return;
@@ -170,8 +244,8 @@ export class SealViewer {
 
     this.jointGroup.traverse((object) => {
       if (object === this.jointGroup) return;
-      const jointFacadeKey = object.userData?.facadeKey;
-      object.visible = visibleFacadeKeys === undefined || visibleFacadeKeys.has(jointFacadeKey);
+      const relatedFacadeKeys = Array.isArray(object.userData?.relatedFacadeKeys) ? object.userData.relatedFacadeKeys : [];
+      object.visible = visibleFacadeKeys === undefined || relatedFacadeKeys.some((key: string) => visibleFacadeKeys.has(key));
     });
   }
 

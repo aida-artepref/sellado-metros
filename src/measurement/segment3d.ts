@@ -1,4 +1,4 @@
-import type { Axis, FacadePanel2D, SealJointType } from "../domain/model";
+import type { Axis, FacadePanel2D, JointSide, SealJointType } from "../domain/model";
 import type { Vec3 } from "../domain/vector";
 
 function setAxis(point: Vec3, axis: Axis, value: number): void {
@@ -16,7 +16,7 @@ export function pointOnPanelFacade(panel: FacadePanel2D, plane: number, u: numbe
 export function createJointId(
   type: SealJointType,
   facadeKey: string,
-  side: FacadePanel2D["side"],
+  side: JointSide,
   start: Vec3,
   end: Vec3,
   elementA: number,

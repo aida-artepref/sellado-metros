@@ -20,6 +20,7 @@ function makeVerticalJoint(a: FacadePanel2D, b: FacadePanel2D, u: number, zMin: 
     side,
     facadeKey: a.facadeKey,
     facadeName: a.facadeName,
+    relatedFacadeKeys: [a.facadeKey],
     start,
     end,
     length: length3D(start, end),
@@ -40,6 +41,29 @@ function makeHorizontalJoint(a: FacadePanel2D, b: FacadePanel2D, z: number, uMin
     side,
     facadeKey: a.facadeKey,
     facadeName: a.facadeName,
+    relatedFacadeKeys: [a.facadeKey],
+    start,
+    end,
+    length: length3D(start, end),
+    elementA: a.expressId,
+    elementB: b.expressId,
+    confidence: "auto",
+  };
+}
+
+function makeCornerJoint(a: FacadePanel2D, b: FacadePanel2D, zMin: number, zMax: number): SealJoint {
+  const facadeNames = [a.facadeName, b.facadeName].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  const facadeKeys = [a.facadeKey, b.facadeKey].sort();
+  const start = pointOnPanelFacade(a, a.plane, b.plane, zMin);
+  const end = pointOnPanelFacade(a, a.plane, b.plane, zMax);
+
+  return {
+    id: createJointId("corner", facadeKeys.join("+"), "CORNER", start, end, a.expressId, b.expressId),
+    type: "corner",
+    side: "CORNER",
+    facadeKey: facadeKeys.join("+"),
+    facadeName: `Esquina: ${facadeNames.join(" + ")}`,
+    relatedFacadeKeys: facadeKeys,
     start,
     end,
     length: length3D(start, end),
@@ -51,8 +75,24 @@ function makeHorizontalJoint(a: FacadePanel2D, b: FacadePanel2D, z: number, uMin
 
 function detectPair(a: FacadePanel2D, b: FacadePanel2D, config: SealMeasurementConfig): SealJoint[] {
   const joints: SealJoint[] = [];
-  if (a.facadeKey !== b.facadeKey) return joints;
-  if (a.side !== b.side) return joints;
+
+  if (a.facadeKey !== b.facadeKey || a.side !== b.side) {
+    if (a.facadeKey === b.facadeKey) return joints;
+    if (a.normalAxis === b.normalAxis) return joints;
+    if (a.vAxis !== b.vAxis) return joints;
+
+    const verticalOverlap = overlap(a.zMin, a.zMax, b.zMin, b.zMax);
+    if (verticalOverlap < config.minJointLength) return joints;
+
+    const aTouchesCorner = a.uMin - config.contactTolerance <= b.plane && a.uMax + config.contactTolerance >= b.plane;
+    const bTouchesCorner = b.uMin - config.contactTolerance <= a.plane && b.uMax + config.contactTolerance >= a.plane;
+
+    if (aTouchesCorner && bTouchesCorner) {
+      joints.push(makeCornerJoint(a, b, Math.max(a.zMin, b.zMin), Math.min(a.zMax, b.zMax)));
+    }
+
+    return joints;
+  }
 
   const verticalOverlap = overlap(a.zMin, a.zMax, b.zMin, b.zMax);
   const abVerticalGap = Math.abs(a.uMax - b.uMin);
@@ -83,19 +123,6 @@ function detectPair(a: FacadePanel2D, b: FacadePanel2D, config: SealMeasurementC
   return joints;
 }
 
-function groupByFacade(panels: FacadePanel2D[]): Map<string, FacadePanel2D[]> {
-  const grouped = new Map<string, FacadePanel2D[]>();
-
-  for (const panel of panels) {
-    const key = `${panel.facadeKey}|${panel.side}`;
-    const group = grouped.get(key) ?? [];
-    group.push(panel);
-    grouped.set(key, group);
-  }
-
-  return grouped;
-}
-
 export function deduplicateJoints(joints: SealJoint[]): SealJoint[] {
   const map = new Map<string, SealJoint>();
   for (const joint of joints) {
@@ -118,14 +145,11 @@ export function deduplicateJoints(joints: SealJoint[]): SealJoint[] {
 }
 
 export function detectSealJoints(panels: FacadePanel2D[], config: SealMeasurementConfig): SealJoint[] {
-  const grouped = groupByFacade(panels);
   const detected: SealJoint[] = [];
 
-  for (const facadePanels of grouped.values()) {
-    for (let i = 0; i < facadePanels.length; i += 1) {
-      for (let j = i + 1; j < facadePanels.length; j += 1) {
-        detected.push(...detectPair(facadePanels[i], facadePanels[j], config));
-      }
+  for (let i = 0; i < panels.length; i += 1) {
+    for (let j = i + 1; j < panels.length; j += 1) {
+      detected.push(...detectPair(panels[i], panels[j], config));
     }
   }
 

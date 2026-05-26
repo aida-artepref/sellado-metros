@@ -36,6 +36,7 @@ export interface IfcStoreyInfo {
 }
 
 export type FacadeSide = "XMIN" | "XMAX" | "YMIN" | "YMAX" | "ZMIN" | "ZMAX";
+export type JointSide = FacadeSide | "CORNER";
 
 export interface FacadePanel2D {
   expressId: number;
@@ -58,14 +59,15 @@ export interface FacadePanel2D {
   bbox: Box3Like;
 }
 
-export type SealJointType = "vertical" | "horizontal" | "perimeter";
+export type SealJointType = "vertical" | "horizontal" | "corner" | "perimeter";
 
 export interface SealJoint {
   id: string;
   type: SealJointType;
-  side: FacadeSide;
+  side: JointSide;
   facadeKey: string;
   facadeName: string;
+  relatedFacadeKeys: string[];
   start: Vec3;
   end: Vec3;
   length: number;
@@ -101,12 +103,22 @@ export interface FacadeMeasurementSummary {
   panelCount: number;
 }
 
+export interface CornerMeasurementSummary {
+  key: string;
+  name: string;
+  facadeKeys: string[];
+  total: number;
+  count: number;
+}
+
 export interface SealMeasurementReport {
   total: number;
   vertical: number;
   horizontal: number;
+  corner: number;
   byFacade: Record<string, FacadeMeasurementSummary>;
   facades: FacadeMeasurementSummary[];
+  corners: CornerMeasurementSummary[];
   joints: SealJoint[];
   panels: FacadePanel2D[];
 }

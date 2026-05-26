@@ -255,7 +255,7 @@ function renderReport(report?: SealMeasurementReport, excludedCount = 0): void {
   summary.innerHTML = `
     <strong>${report.total.toFixed(2)} m</strong>
     <span>Total sellado exterior detectado</span>
-    <small>${report.horizontal.toFixed(2)} m horizontales + ${report.vertical.toFixed(2)} m verticales</small>
+    <small>${report.horizontal.toFixed(2)} m horizontales + ${report.vertical.toFixed(2)} m verticales + ${report.corner.toFixed(2)} m esquinas</small>
     <small>${report.panels.length} paneles clasificados / ${report.joints.length} juntas</small>
     <small>${report.facades.length} fachadas IFC con paneles medidos</small>
     ${excludedCount > 0 ? `<small>${excludedCount} juntas excluidas manualmente</small>` : ""}
@@ -266,7 +266,6 @@ function renderReport(report?: SealMeasurementReport, excludedCount = 0): void {
       <thead>
         <tr>
           <th>Fachada IFC</th>
-          <th>Lado</th>
           <th>Total</th>
           <th>Horiz.</th>
           <th>Vert.</th>
@@ -279,7 +278,6 @@ function renderReport(report?: SealMeasurementReport, excludedCount = 0): void {
             (data) => `
               <tr>
                 <td>${data.name}</td>
-                <td>${data.side}</td>
                 <td>${data.total.toFixed(2)}</td>
                 <td>${data.horizontal.toFixed(2)}</td>
                 <td>${data.vertical.toFixed(2)}</td>
@@ -292,10 +290,10 @@ function renderReport(report?: SealMeasurementReport, excludedCount = 0): void {
     </table>
   `;
 
-  renderLegend(report.facades);
+  renderLegend(report.facades, report.corners);
 }
 
-function renderLegend(facades: FacadeMeasurementSummary[] = []): void {
+function renderLegend(facades: FacadeMeasurementSummary[] = [], corners: SealMeasurementReport["corners"] = []): void {
   const legend = el<HTMLDivElement>("#legend");
 
   if (facades.length === 0) {
@@ -312,7 +310,7 @@ function renderLegend(facades: FacadeMeasurementSummary[] = []): void {
   });
 
   legend.className = "legend";
-  legend.innerHTML = uniqueFacades
+  const facadeItems = uniqueFacades
     .map(
       (facade) =>
         `<button type="button" class="legend-item${state.isolatedFacadeKeys.has(facade.key) ? " active" : ""}" data-facade-key="${facade.key}">
@@ -324,6 +322,27 @@ function renderLegend(facades: FacadeMeasurementSummary[] = []): void {
         </button>`,
     )
     .join("");
+
+  const cornerItems =
+    corners.length === 0
+      ? ""
+      : `
+        <div class="legend-section-title">Esquinas</div>
+        ${corners
+          .map(
+            (corner) => `
+              <div class="legend-corner">
+                <i class="corner-chip"></i>
+                <span class="legend-copy">
+                  <strong>${corner.name}</strong>
+                  <small>${corner.total.toFixed(2)} m</small>
+                </span>
+              </div>`,
+          )
+          .join("")}
+      `;
+
+  legend.innerHTML = facadeItems + cornerItems;
 }
 
 function applyFacadeIsolation(): void {

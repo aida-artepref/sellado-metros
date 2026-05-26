@@ -1,4 +1,4 @@
-import type { FacadeMeasurementSummary, SealJoint, SealMeasurementReport } from "../domain/model";
+import type { CornerMeasurementSummary, FacadeMeasurementSummary, FacadeSide, SealJoint, SealMeasurementReport } from "../domain/model";
 import { meters } from "./math";
 
 function makeFacadeSummary(panel: SealMeasurementReport["panels"][number]): FacadeMeasurementSummary {
@@ -16,6 +16,7 @@ function makeFacadeSummary(panel: SealMeasurementReport["panels"][number]): Faca
 
 export function buildMeasurementReport(joints: SealJoint[], panels: SealMeasurementReport["panels"]): SealMeasurementReport {
   const byFacade: SealMeasurementReport["byFacade"] = {};
+  const byCorner = new Map<string, CornerMeasurementSummary>();
 
   for (const panel of panels) {
     byFacade[panel.facadeKey] ??= makeFacadeSummary(panel);
@@ -24,12 +25,28 @@ export function buildMeasurementReport(joints: SealJoint[], panels: SealMeasurem
 
   let vertical = 0;
   let horizontal = 0;
+  let corner = 0;
 
   for (const joint of joints) {
+    if (joint.type === "corner") {
+      const summary = byCorner.get(joint.facadeKey) ?? {
+        key: joint.facadeKey,
+        name: joint.facadeName,
+        facadeKeys: joint.relatedFacadeKeys,
+        total: 0,
+        count: 0,
+      };
+      summary.total += joint.length;
+      summary.count += 1;
+      byCorner.set(joint.facadeKey, summary);
+      corner += joint.length;
+      continue;
+    }
+
     byFacade[joint.facadeKey] ??= {
       key: joint.facadeKey,
       name: joint.facadeName,
-      side: joint.side,
+      side: joint.side as FacadeSide,
       total: 0,
       vertical: 0,
       horizontal: 0,
@@ -61,14 +78,23 @@ export function buildMeasurementReport(joints: SealJoint[], panels: SealMeasurem
     }))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }) || a.side.localeCompare(b.side));
 
+  const corners = [...byCorner.values()]
+    .map((item) => ({
+      ...item,
+      total: meters(item.total),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
   const roundedByFacade = Object.fromEntries(facades.map((facade) => [facade.key, facade])) as SealMeasurementReport["byFacade"];
 
   return {
-    total: meters(vertical + horizontal),
+    total: meters(vertical + horizontal + corner),
     vertical: meters(vertical),
     horizontal: meters(horizontal),
+    corner: meters(corner),
     byFacade: roundedByFacade,
     facades,
+    corners,
     joints,
     panels,
   };
