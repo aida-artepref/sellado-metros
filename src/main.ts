@@ -4,9 +4,9 @@ import { WebIfcReader } from "./ifc/webIfcReader";
 import { calculateSealMeasurement } from "./measurement/calculateSealMeasurement";
 import { buildMeasurementReport, reportToCsv } from "./measurement/report";
 import { downloadTextFile } from "./utils/download";
-import { SealViewer } from "./viewer/SealViewer";
+import { facadeColorHex, SealViewer } from "./viewer/SealViewer";
 import type { Box3Like } from "./domain/vector";
-import type { IfcElementGeometry } from "./domain/model";
+import type { FacadeMeasurementSummary, IfcElementGeometry } from "./domain/model";
 
 const SAMPLE_MODEL_URL = "/models/maderas-alonso.ifc";
 
@@ -19,6 +19,7 @@ type AppState = {
   baseReport?: SealMeasurementReport;
   report?: SealMeasurementReport;
   excludedJointIds: Set<string>;
+  isolatedFacadeKeys: Set<string>;
 };
 
 const appRoot = document.querySelector<HTMLDivElement>("#app");
@@ -97,10 +98,7 @@ appRoot.innerHTML = `
 
   <main class="viewer-shell">
     <div id="viewer"></div>
-    <div class="legend">
-      <span><i class="vertical"></i> Junta vertical</span>
-      <span><i class="horizontal"></i> Junta horizontal</span>
-    </div>
+    <div id="legend" class="legend empty">Los colores de las juntas se asignan por alzado.</div>
   </main>
 `;
 
@@ -112,6 +110,7 @@ const state: AppState = {
   viewer: new SealViewer(viewerContainer),
   elements: [],
   excludedJointIds: new Set<string>(),
+  isolatedFacadeKeys: new Set<string>(),
 };
 
 state.viewer.setJointClickHandler((jointId) => {
@@ -170,9 +169,11 @@ async function loadIfcFromBuffer(buffer: ArrayBuffer, label: string): Promise<vo
   state.baseReport = undefined;
   state.report = undefined;
   state.excludedJointIds.clear();
+  state.isolatedFacadeKeys.clear();
 
   state.viewer.setModel(result.elements, result.modelBox);
   state.viewer.setJoints([]);
+  state.viewer.setIsolation();
   renderReport(undefined);
 
   const facadeTokens = ["FACHADA", "ALZADO", "CERRAMIENTO"];
@@ -218,6 +219,7 @@ function syncReportWithExcludedJoints(): void {
   const report = buildMeasurementReport(activeJoints, state.baseReport.panels);
   state.report = report;
   state.viewer.setJoints(state.baseReport.joints, state.excludedJointIds);
+  applyFacadeIsolation();
   renderReport(report, state.baseReport.joints.length - activeJoints.length);
 
   const excludedCount = state.excludedJointIds.size;
@@ -245,6 +247,7 @@ function renderReport(report?: SealMeasurementReport, excludedCount = 0): void {
     summary.className = "summary empty";
     summary.textContent = "Carga un IFC y calcula.";
     table.innerHTML = "";
+    renderLegend();
     return;
   }
 
@@ -288,7 +291,67 @@ function renderReport(report?: SealMeasurementReport, excludedCount = 0): void {
       </tbody>
     </table>
   `;
+
+  renderLegend(report.facades);
 }
+
+function renderLegend(facades: FacadeMeasurementSummary[] = []): void {
+  const legend = el<HTMLDivElement>("#legend");
+
+  if (facades.length === 0) {
+    legend.className = "legend empty";
+    legend.textContent = "Los colores de las juntas se asignan por alzado.";
+    return;
+  }
+
+  const seen = new Set<string>();
+  const uniqueFacades = facades.filter((facade) => {
+    if (seen.has(facade.key)) return false;
+    seen.add(facade.key);
+    return true;
+  });
+
+  legend.className = "legend";
+  legend.innerHTML = uniqueFacades
+    .map(
+      (facade) =>
+        `<button type="button" class="legend-item${state.isolatedFacadeKeys.has(facade.key) ? " active" : ""}" data-facade-key="${facade.key}">
+          <i style="background:#${facadeColorHex(facade.key)}"></i>
+          <span class="legend-copy">
+            <strong>${facade.name}</strong>
+            <small>${facade.total.toFixed(2)} m</small>
+          </span>
+        </button>`,
+    )
+    .join("");
+}
+
+function applyFacadeIsolation(): void {
+  if (!state.baseReport || state.isolatedFacadeKeys.size === 0) {
+    state.viewer.setIsolation();
+    return;
+  }
+
+  const visibleElementIds = new Set(
+    state.baseReport.panels.filter((panel) => state.isolatedFacadeKeys.has(panel.facadeKey)).map((panel) => panel.expressId),
+  );
+  state.viewer.setIsolation(visibleElementIds, state.isolatedFacadeKeys);
+}
+
+el<HTMLDivElement>("#legend").addEventListener("click", (event) => {
+  const target = event.target as HTMLElement;
+  const button = target.closest<HTMLButtonElement>(".legend-item");
+  if (!button) return;
+
+  const facadeKey = button.dataset.facadeKey;
+  if (!facadeKey || !state.baseReport) return;
+
+  if (state.isolatedFacadeKeys.has(facadeKey)) state.isolatedFacadeKeys.delete(facadeKey);
+  else state.isolatedFacadeKeys.add(facadeKey);
+
+  applyFacadeIsolation();
+  renderLegend(state.report?.facades ?? []);
+});
 
 el<HTMLInputElement>("#ifc-file").addEventListener("change", async (event) => {
   const input = event.currentTarget as HTMLInputElement;

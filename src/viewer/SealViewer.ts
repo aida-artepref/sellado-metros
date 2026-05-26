@@ -14,10 +14,24 @@ function materialForElement(element: IfcElementGeometry): THREE.Material {
   return new THREE.MeshLambertMaterial({ color: base, transparent: true, opacity: element.kind === "wall" ? 0.72 : 0.35 });
 }
 
-function colorForJoint(type: SealJoint["type"]): number {
-  if (type === "vertical") return 0xff3b30;
-  if (type === "horizontal") return 0x147efb;
-  return 0xffcc00;
+function hashText(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+}
+
+export function facadeColorHex(facadeKey: string): string {
+  const hash = hashText(facadeKey);
+  const hue = hash % 360;
+  const saturation = 62 + (hash % 12);
+  const lightness = 48 + (hash % 10);
+  return new THREE.Color().setHSL(hue / 360, saturation / 100, lightness / 100).getHexString();
+}
+
+function colorForJoint(joint: SealJoint): number {
+  return Number.parseInt(facadeColorHex(joint.facadeKey), 16);
 }
 
 export class SealViewer {
@@ -90,6 +104,7 @@ export class SealViewer {
 
         const mesh = new THREE.Mesh(geometry, material);
         mesh.name = `${element.kind}:${element.expressId}:${element.name}`;
+        mesh.userData = { expressId: element.expressId };
         this.modelGroup.add(mesh);
       }
     }
@@ -121,7 +136,7 @@ export class SealViewer {
 
       const isInactive = inactiveJointIds.has(joint.id);
       const material = new LineMaterial({
-        color: isInactive ? INACTIVE_JOINT_COLOR : colorForJoint(joint.type),
+        color: isInactive ? INACTIVE_JOINT_COLOR : colorForJoint(joint),
         linewidth: 6,
         depthTest: false,
         depthWrite: false,
@@ -134,11 +149,30 @@ export class SealViewer {
       const line = new Line2(geometry, material);
       line.name = `${joint.type}:${joint.id}`;
       line.renderOrder = 999;
-      line.userData = { jointId: joint.id };
+      line.userData = { jointId: joint.id, facadeKey: joint.facadeKey };
       line.computeLineDistances();
 
       this.jointGroup.add(line);
     }
+  }
+
+  setIsolation(visibleElementIds?: ReadonlySet<number>, visibleFacadeKeys?: ReadonlySet<string>): void {
+    this.modelGroup.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      if (visibleElementIds === undefined) {
+        object.visible = true;
+        return;
+      }
+
+      const expressId = object.userData?.expressId;
+      object.visible = typeof expressId === "number" && visibleElementIds.has(expressId);
+    });
+
+    this.jointGroup.traverse((object) => {
+      if (object === this.jointGroup) return;
+      const jointFacadeKey = object.userData?.facadeKey;
+      object.visible = visibleFacadeKeys === undefined || visibleFacadeKeys.has(jointFacadeKey);
+    });
   }
 
   private resize = (): void => {
