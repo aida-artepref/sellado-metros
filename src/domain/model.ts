@@ -126,9 +126,9 @@ export interface SealMeasurementReport {
 export const DEFAULT_MEASUREMENT_CONFIG: SealMeasurementConfig = {
   exteriorTolerance: 0.35,
   contactTolerance: 0.06,
-  minPanelLength: 1.0,
-  minPanelHeight: 0.2,
-  minJointLength: 0.2,
+  minPanelLength: 0.01,
+  minPanelHeight: 0.02,
+  minJointLength: 0.02,
   wallNameIncludes: "PANEL",
   facadeStoreyNameIncludes: "FACHADA,ALZADO,CERRAMIENTO",
   includeUnnamedWalls: true,

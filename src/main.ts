@@ -49,14 +49,6 @@ appRoot.innerHTML = `
           <input id="contactTolerance" type="number" step="0.01" value="${DEFAULT_MEASUREMENT_CONFIG.contactTolerance}" />
         </label>
         <label>
-          Long. minima panel (m)
-          <input id="minPanelLength" type="number" step="0.1" value="${DEFAULT_MEASUREMENT_CONFIG.minPanelLength}" />
-        </label>
-        <label>
-          Altura minima panel (m)
-          <input id="minPanelHeight" type="number" step="0.1" value="${DEFAULT_MEASUREMENT_CONFIG.minPanelHeight}" />
-        </label>
-        <label>
           Long. minima junta (m)
           <input id="minJointLength" type="number" step="0.1" value="${DEFAULT_MEASUREMENT_CONFIG.minJointLength}" />
         </label>
@@ -147,8 +139,8 @@ function readConfig(): SealMeasurementConfig {
   return {
     exteriorTolerance: readNumberInput("exteriorTolerance"),
     contactTolerance: readNumberInput("contactTolerance"),
-    minPanelLength: readNumberInput("minPanelLength"),
-    minPanelHeight: readNumberInput("minPanelHeight"),
+    minPanelLength: DEFAULT_MEASUREMENT_CONFIG.minPanelLength,
+    minPanelHeight: DEFAULT_MEASUREMENT_CONFIG.minPanelHeight,
     minJointLength: readNumberInput("minJointLength"),
     wallNameIncludes: wallNameIncludes.length > 0 ? wallNameIncludes : undefined,
     facadeStoreyNameIncludes: facadeStoreyNameIncludes.length > 0 ? facadeStoreyNameIncludes : undefined,
